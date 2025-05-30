@@ -1,86 +1,77 @@
 import streamlit as st
-import datetime
-import json
+import pandas as pd
 import os
+from datetime import date
 
-st.set_page_config(page_title="Mood Tracker", layout="centered")
-st.title("Mood Tracker")
+DATA_FILE = "mood_ratings.csv"
 
-# --- Select user from dropdown ---
-user = st.selectbox("Select user", ["Mana", "Emily"])
-st.markdown(f"**Current user: {user}**")
+def calculate_color(anxiety, mood, productivity, energy):
+    # Weight higher values more strongly by squaring
+    a = (anxiety / 10) ** 2
+    m = (mood / 10) ** 2
+    p = (productivity / 10) ** 2
+    e = (energy / 10) ** 2
 
-# --- Load or initialize data ---
-data_file = "mood_data.json"
+    # Red reflects anxiety strongly
+    red = min(int(255 * a), 255)
+    # Green reflects mood, productivity, energy combined positively
+    green = min(int(255 * (m * 0.6 + p * 0.2 + e * 0.2)), 255)
+    # Blue is less dominant, influenced by productivity and energy
+    blue = min(int(255 * (p * 0.5 + e * 0.5)), 255)
 
-if os.path.exists(data_file):
-    with open(data_file, "r") as f:
-        all_data = json.load(f)
-else:
-    all_data = {}
+    return (red, green, blue)
 
-if user not in all_data:
-    all_data[user] = []
+def rgb_to_hex(rgb):
+    return '#%02x%02x%02x' % rgb
 
-# --- Input fields ---
-with st.form("mood_form"):
-    st.markdown(f"### Enter today's ratings for {user}")
-    anxiety = st.number_input("Anxiety", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
-    mood = st.number_input("Mood", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
-    productivity = st.number_input("Productivity", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
-    energy = st.number_input("Energy", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
-    submitted = st.form_submit_button("Submit")
+def save_rating(data):
+    if os.path.exists(DATA_FILE):
+        df_existing = pd.read_csv(DATA_FILE)
+        df = pd.concat([df_existing, pd.DataFrame([data])], ignore_index=True)
+    else:
+        df = pd.DataFrame([data])
+    df.to_csv(DATA_FILE, index=False)
 
-# --- Colour conversion with weighted emphasis ---
-def to_rgb(anxiety, mood, productivity):
-    def emphasize(value):
-        # Exponential scaling to emphasize high values
-        return int((value / 10) ** 2 * 255)
-    r = emphasize(anxiety)
-    g = emphasize(mood)
-    b = emphasize(productivity)
-    return (r, g, b)
+def load_ratings():
+    if os.path.exists(DATA_FILE):
+        return pd.read_csv(DATA_FILE)
+    else:
+        return pd.DataFrame()
 
-# --- Save entry if submitted ---
-if submitted:
-    color = to_rgb(anxiety, mood, productivity)
-    entry = {
-        "date": str(datetime.date.today()),
+st.title("Our Mood Tracker")
+
+anxiety = st.number_input("Anxiety (1.0 - 10.0)", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
+mood = st.number_input("Mood (1.0 - 10.0)", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
+productivity = st.number_input("Productivity (1.0 - 10.0)", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
+energy = st.number_input("Energy (1.0 - 10.0)", min_value=1.0, max_value=10.0, step=0.1, format="%.1f")
+
+if st.button("Save Rating"):
+    rgb = calculate_color(anxiety, mood, productivity, energy)
+    data = {
+        "date": str(date.today()),
         "anxiety": anxiety,
         "mood": mood,
         "productivity": productivity,
         "energy": energy,
-        "color": color
+        "rgb": f"RGB{rgb}",
+        "hex_color": rgb_to_hex(rgb)
     }
-    all_data[user].append(entry)
+    save_rating(data)
+    st.success(f"Saved with color {data['rgb']}")
 
-    # Save to file
-    with open(data_file, "w") as f:
-        json.dump(all_data, f, indent=4)
+st.write("### Past Ratings")
 
-    st.success(f"Rating saved for {user}!")
+ratings_df = load_ratings()
+if ratings_df.empty:
+    st.write("No ratings saved yet.")
+else:
+    # Display colored box for each row
+    def color_row(row):
+        return [f"background-color: {row['hex_color']}"] * len(row)
 
-# --- Show saved history for both users ---
-st.markdown("## Rating History")
+    # Show the table with color backgrounds for rows
+    styled_df = ratings_df.style.apply(color_row, axis=1)
+    st.dataframe(styled_df, height=300)
 
-cols = st.columns(2)
-for idx, name in enumerate(["Mana", "Emily"]):
-    cols[idx].markdown(f"### {name}")
-    if name in all_data and all_data[name]:
-        for entry in reversed(all_data[name]):
-            color = entry["color"]
-            r, g, b = color
-            box_color = f"rgb({r}, {g}, {b})"
-            cols[idx].markdown(
-                f"<div style='background-color:{box_color}; padding:10px; border-radius:8px; color:black; margin-bottom:10px;'>"
-                f"<b>{entry['date']}</b><br>"
-                f"Anxiety: {entry['anxiety']}<br>"
-                f"Mood: {entry['mood']}<br>"
-                f"Productivity: {entry['productivity']}<br>"
-                f"Energy: {entry['energy']}<br>"
-                f"RGB: {color}"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-    else:
-        cols[idx].info("No data yet.")
+    # Also show the raw data table with RGB codes
+    st.write(ratings_df[["date", "anxiety", "mood", "productivity", "energy", "rgb"]])
