@@ -1,53 +1,66 @@
 import streamlit as st
 import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime
-from oauth2client.service_account import ServiceAccountCredentials
 
-# Set page config
-st.set_page_config(page_title="Colour Tracker", page_icon="🎨")
+# Google Sheets setup
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+CREDS_FILE = "creds.json"  # Make sure this file is uploaded to Streamlit Cloud
 
-st.title("🎨 Colour Tracker")
+# Authenticate and initialize client
+creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
+client = gspread.authorize(creds)
 
-# Load Google Sheets credentials from Streamlit secrets
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_dict = st.secrets["google_sheets"]
+# Open your sheet by name
+SPREADSHEET_NAME = "colourapp"
+WORKSHEET_NAME = "Sheet1"
 
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(credentials)
+sheet = client.open(SPREADSHEET_NAME).worksheet(WORKSHEET_NAME)
 
-# Open the spreadsheet and select the sheet
-spreadsheet = client.open("colourapp")
-sheet = spreadsheet.sheet1
+# Streamlit app UI
+st.title("Mood Tracker")
 
-# Form to add a new colour
-with st.form("colour_form"):
-    name = st.radio("Who is this for?", ["Emily", "Mana"])
-    colour = st.color_picker("Pick a colour")
-    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    submitted = st.form_submit_button("Add Colour")
+# Select user
+user = st.selectbox("Who is logging their mood?", ["Emily", "Mana"])
 
-    if submitted:
-        # Append to Google Sheets
-        sheet.append_row([name, colour, date])
-        st.success(f"Colour saved for {name}!")
+# Input fields
+mood = st.slider("Mood (1-10)", 1, 10, 5)
+anxiety = st.slider("Anxiety (1-10)", 1, 10, 5)
+productivity = st.slider("Productivity (1-10)", 1, 10, 5)
 
-# Load all saved colours
-records = sheet.get_all_records()
+if st.button("Submit"):
 
-# Filter records
-emily_colours = [r["Colour"] for r in records if r["Name"] == "Emily"]
-mana_colours = [r["Colour"] for r in records if r["Name"] == "Mana"]
+    # Timestamp
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-st.header("🎨 Emily's Colours")
-if emily_colours:
-    for col in emily_colours:
-        st.markdown(f"<div style='background-color:{col};height:30px;width:100%;border-radius:5px;margin-bottom:5px'></div>", unsafe_allow_html=True)
-else:
-    st.write("No colours saved yet.")
+    # Append data row: [name, mood, anxiety, productivity, datetime]
+    row = [user, str(mood), str(anxiety), str(productivity), now]
 
-st.header("🎨 Mana's Colours")
-if mana_colours:
-    for col in mana_colours:
-        st.markdown(f"<div style='background-color:{col};height:30px;width:100%;border-radius:5px;margin-bottom:5px'></div>", unsafe_allow_html=True)
-else:
-    st.write("No colours saved yet.")
+    try:
+        sheet.append_row(row)
+        st.success("Data saved successfully!")
+    except Exception as e:
+        st.error(f"Failed to save data: {e}")
+
+# Display last 5 entries for each user
+st.header("Recent entries")
+
+def get_recent_entries(name):
+    try:
+        data = sheet.get_all_records()
+        user_entries = [entry for entry in data if entry['name'] == name]
+        return user_entries[-5:]  # Last 5 entries
+    except Exception as e:
+        st.error(f"Failed to fetch data: {e}")
+        return []
+
+cols = st.columns(2)
+with cols[0]:
+    st.subheader("Emily")
+    for entry in get_recent_entries("Emily"):
+        st.write(f"{entry['date']} — Mood: {entry['mood']}, Anxiety: {entry['anxiety']}, Productivity: {entry['productivity']}")
+
+with cols[1]:
+    st.subheader("Mana")
+    for entry in get_recent_entries("Mana"):
+        st.write(f"{entry['date']} — Mood: {entry['mood']}, Anxiety: {entry['anxiety']}, Productivity: {entry['productivity']}")
