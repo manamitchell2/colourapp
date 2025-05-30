@@ -4,71 +4,53 @@ from google.oauth2.service_account import Credentials
 import gspread
 from datetime import datetime
 
-# Define your Google Sheets scope
+# Google Sheets API scope
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-# Load credentials from Streamlit secrets (as JSON string)
+# Load creds from Streamlit secrets (stored as JSON string)
 creds_dict = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
 
-# Create credentials object from dict
+# Create credentials object from in-memory dict
 creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 
 # Authorize gspread client
 gc = gspread.authorize(creds)
 
-# Open your Google Sheet by name
+# Open your spreadsheet and worksheet
 SPREADSHEET_NAME = "colourapp"
 WORKSHEET_NAME = "Sheet1"
+
 sh = gc.open(SPREADSHEET_NAME)
 worksheet = sh.worksheet(WORKSHEET_NAME)
 
-# --- Streamlit UI ---
 st.title("Colour Mood Tracker")
 
-# Choose your name
-user = st.selectbox("Select your name", ["Emily", "Mana"])
+# User input form
+with st.form("entry_form"):
+    name = st.selectbox("Who is logging?", ["Emily", "Mana"])
+    colour = st.color_picker("Pick your colour")
+    submitted = st.form_submit_button("Submit")
 
-# Pick your colour (any format you want, here a simple text input)
-colour = st.color_picker("Pick a colour")
+if submitted:
+    # Prepare new row data: [name, colour, date]
+    date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_row = [name, colour, date_str]
 
-# Show today's date (auto-filled)
-date_str = datetime.today().strftime('%Y-%m-%d')
+    # Append the new row to the sheet
+    worksheet.append_row(new_row)
 
-if st.button("Save entry"):
-    # Append the data as a new row: [name, colour, date]
-    worksheet.append_row([user, colour, date_str])
-    st.success("Entry saved!")
+    st.success(f"Entry saved: {name} - {colour} at {date_str}")
 
-# --- Display saved data for each user separately ---
-st.header("Entries by Emily")
-try:
-    all_values = worksheet.get_all_values()  # list of lists
-except Exception as e:
-    st.error(f"Error loading data from Google Sheets: {e}")
-    all_values = []
+# Show last 10 entries sorted by date descending
+data = worksheet.get_all_records()
+if data:
+    # Sort entries by date descending
+    data_sorted = sorted(data, key=lambda x: x['date'], reverse=True)
+    recent = data_sorted[:10]
 
-if all_values:
-    # Assuming first row is headers
-    headers = all_values[0]
-    data_rows = all_values[1:]
-
-    # Filter rows by user
-    emily_rows = [row for row in data_rows if row[0] == "Emily"]
-    mana_rows = [row for row in data_rows if row[0] == "Mana"]
-
-    # Display Emily's entries
-    if emily_rows:
-        for r in emily_rows:
-            st.write(f"Colour: {r[1]} on {r[2]}")
-    else:
-        st.write("No entries yet.")
-
-    st.header("Entries by Mana")
-    # Display Mana's entries
-    if mana_rows:
-        for r in mana_rows:
-            st.write(f"Colour: {r[1]} on {r[2]}")
-    else:
-        st.write("No entries yet.")
+    st.subheader("Recent entries")
+    for entry in recent:
+        st.markdown(f"**{entry['name']}** picked color {entry['colour']} at {entry['date']}")
 else:
-    st.write("No data found in the sheet yet.")
+    st.info("No entries yet.")
+
