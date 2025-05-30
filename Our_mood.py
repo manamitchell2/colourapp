@@ -1,45 +1,53 @@
 import streamlit as st
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import pandas as pd
 from datetime import datetime
-import json
+from oauth2client.service_account import ServiceAccountCredentials
 
-# Set up the scope and authorize credentials
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
-         "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+# Set page config
+st.set_page_config(page_title="Colour Tracker", page_icon="🎨")
 
-# Load credentials from Streamlit Secrets
-creds_dict = json.loads(st.secrets["google_sheets"])
+st.title("🎨 Colour Tracker")
+
+# Load Google Sheets credentials from Streamlit secrets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_dict = st.secrets["google_sheets"]
 
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(credentials)
 
-# Open the spreadsheet and worksheet
-spreadsheet_name = "colourapp"
-worksheet_name = "Sheet1"
-sheet = client.open(spreadsheet_name).worksheet(worksheet_name)
+# Open the spreadsheet and select the sheet
+spreadsheet = client.open("colourapp")
+sheet = spreadsheet.sheet1
 
-# App Title
-st.title("Our Mood Tracker")
+# Form to add a new colour
+with st.form("colour_form"):
+    name = st.radio("Who is this for?", ["Emily", "Mana"])
+    colour = st.color_picker("Pick a colour")
+    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    submitted = st.form_submit_button("Add Colour")
 
-# Input fields
-name = st.text_input("Your name:")
-date = st.date_input("Date:", datetime.today())
-mood = st.slider("Rate your mood (1-10):", 1, 10, 5)
-comment = st.text_area("Additional comments:")
+    if submitted:
+        # Append to Google Sheets
+        sheet.append_row([name, colour, date])
+        st.success(f"Colour saved for {name}!")
 
-# Submit button
-if st.button("Submit"):
-    # Save data to Google Sheet
-    new_row = [str(date), name, mood, comment]
-    sheet.append_row(new_row)
-    st.success("Your mood has been saved!")
+# Load all saved colours
+records = sheet.get_all_records()
 
-# Display current data
-st.subheader("Mood History")
-data = sheet.get_all_values()
-headers = data.pop(0)  # Remove the header row
-df = pd.DataFrame(data, columns=headers)
-st.dataframe(df)
+# Filter records
+emily_colours = [r["Colour"] for r in records if r["Name"] == "Emily"]
+mana_colours = [r["Colour"] for r in records if r["Name"] == "Mana"]
 
+st.header("🎨 Emily's Colours")
+if emily_colours:
+    for col in emily_colours:
+        st.markdown(f"<div style='background-color:{col};height:30px;width:100%;border-radius:5px;margin-bottom:5px'></div>", unsafe_allow_html=True)
+else:
+    st.write("No colours saved yet.")
+
+st.header("🎨 Mana's Colours")
+if mana_colours:
+    for col in mana_colours:
+        st.markdown(f"<div style='background-color:{col};height:30px;width:100%;border-radius:5px;margin-bottom:5px'></div>", unsafe_allow_html=True)
+else:
+    st.write("No colours saved yet.")
